@@ -1,0 +1,43 @@
+# Optional: a UI component library crate that TS components are ported onto.
+# Delete this file if the project has no UI to port.
+#   [[module]]  routes TS modules into the library crate instead of the app
+#   [[widget]]  names the widgets a port should reuse, and what they replace
+#   [[ink]]     maps each UI framework API to its library equivalent
+# `rustify brief` prints the relevant entries for every .tsx file, and
+# `rustify check` enforces the parity rules (README, "UI components").
+
+[library]
+crate = "rust/app-ui"
+crate_name = "app_ui"
+goldens = "rust/app-ui/goldens"
+golden_test = "packages/tui/src/__tests__/rust-ui-goldens.test.tsx"
+# Regenerates the golden frames, run from the golden test's package directory.
+golden_command = "npx vitest run {test} -u"
+# Imports whose names the [[ink]] rules map.
+ui_packages = ["ink", "react"]
+
+[[module]]
+ts = "packages/tui/src/layout.ts"
+rust = "layout.rs"
+
+[[widget]]
+name = "Row"
+rust = "app_ui::layout::Row"
+file = "layout.rs"
+from = ["packages/tui/src/layout.ts"]
+golden = "row.txt"
+status = "planned"
+summary = "one-line row of fixed and fill cells with margins and truncation"
+
+[[ink]]
+names = ["Box"]
+rust = "`app_ui::layout::Row` / `Column`; flex grow and shrink become Fill and Fixed cells"
+hazards = ["Yoga shrinks fixed-width children when the row overflows; ratatui does not."]
+
+[[ink]]
+names = ["Text"]
+rust = "`ratatui::text::Span` with a style from the palette"
+
+[[ink]]
+names = ["useInput"]
+rust = "`fn handle(&mut self, event: crossterm::event::Event) -> Action` on the screen state"

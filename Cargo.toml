@@ -1,0 +1,33 @@
+[package]
+name = "rustify"
+description = "Plans, briefs, and tracks a module-by-module TypeScript → Rust port, with a CI ratchet that keeps ported modules in step"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/ArchAstro/rustify"
+publish = false
+
+# Standalone: not part of any enclosing workspace.
+[workspace]
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive", "env"] }
+globset = "0.4"
+petgraph = "0.8"
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+streaming-iterator = "0.1"
+toml = "1.1"
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+walkdir = "2.5"
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[lints.rust]
+unsafe_code = "forbid"

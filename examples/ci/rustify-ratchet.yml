@@ -1,0 +1,44 @@
+name: Rust port ratchet
+
+# Fails a PR that changes the TypeScript (or recorded tests) of a ported
+# module without porting the change and re-running `rustify done`. Modules
+# already stale where the PR branched are grandfathered.
+# Copy to .github/workflows/ and adjust RUSTIFY_CONFIG and the pinned rev.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # No `paths:` filter: a required check whose workflow never starts leaves
+    # the PR waiting.
+
+concurrency:
+  group: rustify-ratchet-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ratchet:
+    name: Rust port ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTIFY_CONFIG: rustify.toml
+    steps:
+      # Full history: the ratchet runs `git merge-base` against the PR base.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Pin a commit so the gate does not change under you.
+      - name: Install rustify
+        run: cargo install --locked --git https://github.com/ArchAstro/rustify --rev <commit> rustify
+
+      - name: Check the port is not behind the TypeScript
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: rustify ratchet --base "$BASE_SHA"

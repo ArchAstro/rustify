@@ -1,0 +1,43 @@
+# rustify configuration. Put this file at (or above) where you run `rustify`;
+# every path below is relative to the git repository root.
+
+# Where index.toml, mappings.toml, and components.toml live, relative to this
+# file. Omit to keep them next to rustify.toml.
+state_dir = "port"
+
+# The ref `done` stamps entries against and `drift` / `next --catch-up` /
+# `ratchet` compare with. Fetch it before running those commands.
+upstream = "origin/main"
+
+# Optional: a porting conventions doc the brief points agents at.
+# conventions = "rust/PORTING.md"
+
+# Every non-test file under these roots seeds the import graph. Workspace
+# packages they import join file by file.
+roots = ["packages/app/src"]
+# Directory whose */package.json files name the workspace packages.
+packages_dir = "packages"
+# Its modules land at the crate root; every other workspace package becomes a
+# top-level module named after it.
+primary_package = "@acme/app"
+
+rust_crate = "rust/app"
+rust_crate_name = "app"
+
+exclude = [
+  # Entrypoint shims the Rust binary does not need.
+  "packages/app/src/index-bundled.ts",
+]
+
+test_markers = ["/__tests__/", ".test.ts", ".test.tsx", ".spec.ts"]
+# Contract tests that run against the built binary, not a module; `next`
+# never assigns them to batches.
+binary_test_markers = ["/__tests__/e2e/"]
+
+# Workspace packages replaced wholesale by a Rust crate (a generated SDK, say)
+# instead of being ported. Give each a [[package]] rule in mappings.toml.
+external_packages = []
+
+[batch]
+max_files = 6
+max_lines = 800
