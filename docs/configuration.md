@@ -28,6 +28,7 @@ rust_crate = "rust/app"
 rust_crate_name = "app"
 
 exclude = ["packages/app/src/index-bundled.ts"]
+extensions = ["ts", "tsx"]
 test_markers = ["/__tests__/", ".test.ts", ".test.tsx", ".spec.ts"]
 binary_test_markers = ["/__tests__/e2e/"]
 external_packages = ["@acme/generated-sdk"]
@@ -48,6 +49,7 @@ max_lines = 800
 | `rust_crate` | required | Directory of the crate the port writes into (it holds `src/`). |
 | `rust_crate_name` | required | That crate's Rust name; module paths start with it. |
 | `exclude` | `[]` | Globs of files never added to the graph. |
+| `extensions` | `["ts", "tsx"]` | Source file extensions in the graph. Add `js`, `mjs`, `cjs`, or `jsx` to port JavaScript too: it is parsed with the TypeScript grammar (`jsx` with TSX), and an import of `./x.mjs` resolves to `x.ts` first, then `x.mjs`. `.d.ts` files and anything under `dist/` are never sources. |
 | `test_markers` | required | A path containing any of these substrings is a test. |
 | `binary_test_markers` | `[]` | Tests matching these run against the built binary. They are never assigned to a batch. |
 | `external_packages` | `[]` | Workspace packages replaced wholesale by a Rust crate instead of ported. Imports of them are treated as external; give each a `[[package]]` rule. |

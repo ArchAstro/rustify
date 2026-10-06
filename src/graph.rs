@@ -268,7 +268,9 @@ impl Builder<'_> {
     }
 
     fn first_existing(&self, candidates: Vec<String>) -> Option<String> {
-        candidates.into_iter().find(|c| self.exists(c))
+        candidates
+            .into_iter()
+            .find(|c| self.ws.is_source(c) && self.exists(c))
     }
 
     fn resolve(&self, from: &str, specifier: &str) -> Resolved {
@@ -504,17 +506,12 @@ fn ts_files(ws: &Workspace, dir: &str) -> Vec<String> {
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
         .filter_map(|e| {
-            let name = e.file_name().to_string_lossy();
-            let is_ts =
-                (name.ends_with(".ts") || name.ends_with(".tsx")) && !name.ends_with(".d.ts");
-            if !is_ts {
-                return None;
-            }
             e.path()
                 .strip_prefix(&ws.root)
                 .ok()
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
         })
+        .filter(|rel| ws.is_source(rel))
         .collect()
 }
 
@@ -558,6 +555,10 @@ pub fn rust_target(ws: &Workspace, packages: &Packages, rel: &str) -> (String, S
     let stem = within
         .strip_suffix(".tsx")
         .or_else(|| within.strip_suffix(".ts"))
+        .or_else(|| within.strip_suffix(".mjs"))
+        .or_else(|| within.strip_suffix(".cjs"))
+        .or_else(|| within.strip_suffix(".jsx"))
+        .or_else(|| within.strip_suffix(".js"))
         .unwrap_or(within);
     let mut segments: Vec<String> = prefix;
     segments.extend(stem.split('/').map(snake));

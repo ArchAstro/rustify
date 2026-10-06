@@ -220,9 +220,14 @@ fn condition_targets(entry: &Value, wildcard: Option<&str>) -> Vec<String> {
 }
 
 /// `./dist/runtime/cli-client.js` → `src/runtime/cli-client.ts`, plus the
-/// `.tsx` and `index` variants.
+/// `.tsx` and `index` variants. TypeScript sources come first; the JavaScript
+/// file itself (outside `dist/`) and JavaScript variants follow, for projects
+/// that port `.js`/`.mjs` too. The graph keeps only candidates whose
+/// extension is configured (`extensions`).
 fn source_candidates(target: &str) -> Vec<String> {
-    let mut t = target.trim_start_matches("./").to_string();
+    let original = target.trim_start_matches("./").to_string();
+    let mut t = original.clone();
+    let compiled = t.starts_with("dist/");
     if let Some(rest) = t.strip_prefix("dist/") {
         t = format!("src/{rest}");
     }
@@ -235,12 +240,23 @@ fn source_candidates(target: &str) -> Vec<String> {
     if t.ends_with(".ts") || t.ends_with(".tsx") {
         return vec![t];
     }
-    vec![
+    let mut out = vec![
         format!("{t}.ts"),
         format!("{t}.tsx"),
         format!("{t}/index.ts"),
         format!("{t}/index.tsx"),
-    ]
+    ];
+    if !compiled && t != original {
+        out.push(original);
+    }
+    for ext in ["js", "mjs", "cjs", "jsx"] {
+        for candidate in [format!("{t}.{ext}"), format!("{t}/index.{ext}")] {
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
 }
 
 /// Candidates for a relative import from `from_dir` (repository-relative).
@@ -270,15 +286,31 @@ mod tests {
     #[test]
     fn maps_compiled_targets_back_to_sources() {
         assert_eq!(
-            source_candidates("./dist/runtime/cli-client.js"),
-            vec![
+            source_candidates("./dist/runtime/cli-client.js")[..4],
+            [
                 "src/runtime/cli-client.ts",
                 "src/runtime/cli-client.tsx",
                 "src/runtime/cli-client/index.ts",
                 "src/runtime/cli-client/index.tsx",
             ]
         );
+        // Compiled output itself is never a source.
+        assert!(
+            !source_candidates("./dist/runtime/cli-client.js")
+                .iter()
+                .any(|c| c.starts_with("dist/"))
+        );
         assert_eq!(source_candidates("./src/index.tsx"), vec!["src/index.tsx"]);
+    }
+
+    #[test]
+    fn a_javascript_import_falls_back_to_the_javascript_file_after_typescript() {
+        let got = source_candidates("bin/doctor.mjs");
+        assert_eq!(got[0], "bin/doctor.ts");
+        assert!(got.contains(&"bin/doctor.mjs".to_owned()), "{got:?}");
+        let bare = source_candidates("lib/util");
+        assert!(bare.contains(&"lib/util.js".to_owned()), "{bare:?}");
+        assert!(bare.contains(&"lib/util/index.mjs".to_owned()), "{bare:?}");
     }
 
     #[test]

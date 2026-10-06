@@ -1436,3 +1436,92 @@ fn the_ratchet_passes_on_the_branch_that_adopts_rustify() {
     assert_ok(&out);
     assert!(text(&out).starts_with("OK:"), "{}", text(&out));
 }
+
+#[test]
+fn ports_javascript_modules_when_their_extensions_are_configured() {
+    // Setup: a CLI package written in plain `.mjs` that imports a TS module
+    // from the same repository and another `.mjs` file by its full name.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let f = Fixture { _dir: dir, root };
+    let config = |extensions: &str| {
+        format!(
+            r#"
+roots = ["packages/cli/bin"]
+packages_dir = "packages"
+primary_package = "cli"
+rust_crate = "rust/cli"
+rust_crate_name = "cli"
+{extensions}
+test_markers = [".test."]
+[batch]
+max_files = 6
+max_lines = 800
+"#
+        )
+    };
+    f.write("rustify.toml", &config(""));
+    f.write("mappings.toml", "");
+    f.write("packages/cli/package.json", r#"{"name":"cli"}"#);
+    f.write(
+        "packages/cli/bin/cli.mjs",
+        "import { doctor } from \"./doctor.mjs\";\nimport { slug } from \"../src/slug\";\nexport function main() { doctor(); slug(); }\n",
+    );
+    f.write(
+        "packages/cli/bin/doctor.mjs",
+        "export function doctor() {}\n",
+    );
+    f.write("packages/cli/src/slug.ts", "export function slug() {}\n");
+    f.write(
+        "packages/cli/bin/cli.test.mjs",
+        "import { main } from \"./cli.mjs\";\n",
+    );
+    f.write("rust/cli/src/lib.rs", "");
+    f.git(&["init", "-q", "-b", "main"]);
+    f.land_upstream("js cli");
+
+    // By default only TypeScript is in the graph: the roots hold no sources.
+    let graph = f.port_json(&["graph"]);
+    assert_eq!(graph["files"].as_array().unwrap().len(), 0, "{graph:#}");
+
+    // With `mjs` configured, the .mjs files join the graph, resolve each
+    // other and the TS module, and map to Rust files without the extension.
+    f.write(
+        "rustify.toml",
+        &config(r#"extensions = ["ts", "tsx", "mjs"]"#),
+    );
+    let graph = f.port_json(&["graph"]);
+    let files: Vec<&str> = graph["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["ts"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        files,
+        [
+            "packages/cli/bin/cli.mjs",
+            "packages/cli/bin/doctor.mjs",
+            "packages/cli/src/slug.ts"
+        ]
+    );
+    let brief = text(&f.port(&["brief", "packages/cli/bin/cli.mjs"]));
+    assert!(
+        brief.contains("| `packages/cli/bin/cli.mjs` | `bin/cli.rs` | `cli::bin::cli` |"),
+        "{brief}"
+    );
+    assert!(brief.contains("`packages/cli/bin/cli.test.mjs`"), "{brief}");
+
+    // Outcome: the JS module ports and records like a TS one.
+    f.write("rust/cli/src/lib.rs", "pub mod bin;\npub mod slug;\n");
+    f.write("rust/cli/src/slug.rs", "pub fn slug() {}\n");
+    f.write("rust/cli/src/bin/mod.rs", "pub mod doctor;\n");
+    f.write("rust/cli/src/bin/doctor.rs", "pub fn doctor() {}\n");
+    assert_ok(&f.port(&["start", "packages/cli/bin/doctor.mjs"]));
+    assert_ok(&f.port(&["done", "packages/cli/bin/doctor.mjs"]));
+    let index = std::fs::read_to_string(f.root.join("index.toml")).unwrap();
+    assert!(
+        index.contains("doctor = \"cli::bin::doctor::doctor\""),
+        "{index}"
+    );
+}
