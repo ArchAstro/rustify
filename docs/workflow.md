@@ -44,7 +44,8 @@ root (the git top level), wherever the file lives.
 
 ## 2. How rustify sees your code
 
-**Files.** Every `.ts`/`.tsx` file reachable from `roots` is in the graph,
+**Files.** Every `.ts`/`.tsx` file (plus any JavaScript extensions you add
+to `extensions`) reachable from `roots` is in the graph,
 including files in other workspace packages that `roots` import. Files
 matching `test_markers` are tests; tests matching `binary_test_markers` are
 end-to-end tests that run against your binary and are never assigned to a

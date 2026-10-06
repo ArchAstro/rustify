@@ -1,6 +1,6 @@
 # rustify
 
-`rustify` helps you port a TypeScript codebase to Rust one module at a time,
+`rustify` helps you port a TypeScript (or JavaScript) codebase to Rust one module at a time,
 and keeps the port in step while the TypeScript keeps changing.
 
 It reads your TypeScript import graph, tells you what to port next and how,

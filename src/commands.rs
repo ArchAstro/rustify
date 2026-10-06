@@ -1228,7 +1228,7 @@ fn check_ui(ctx: &Ctx<'_>, ui: &Components, errors: &mut Vec<String>) -> Result<
         }
     }
     for entry in &ctx.index.modules {
-        if !entry.ts.ends_with(".tsx") || !entry.status.has_rust() {
+        if !(entry.ts.ends_with(".tsx") || entry.ts.ends_with(".jsx")) || !entry.status.has_rust() {
             continue;
         }
         let (Some(rust), Some(module)) = (&entry.rust, &entry.module) else {

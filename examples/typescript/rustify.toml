@@ -29,6 +29,10 @@ exclude = [
   "packages/app/src/index-bundled.ts",
 ]
 
+# Source extensions in the graph. Add "js", "mjs", "cjs", or "jsx" to port
+# JavaScript files as well.
+extensions = ["ts", "tsx"]
+
 test_markers = ["/__tests__/", ".test.ts", ".test.tsx", ".spec.ts"]
 # Contract tests that run against the built binary, not a module; `next`
 # never assigns them to batches.

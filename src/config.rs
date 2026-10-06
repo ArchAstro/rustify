@@ -44,6 +44,11 @@ pub struct Config {
     /// Globs (repository-relative) never added to the graph.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// Source file extensions in the graph, without the dot. Add `js`,
+    /// `mjs`, `cjs`, or `jsx` to port JavaScript files as well; they are
+    /// parsed with the TypeScript (or, for `jsx`, TSX) grammar.
+    #[serde(default = "default_extensions")]
+    pub extensions: Vec<String>,
     /// A path is a test when any of these substrings occurs in it.
     pub test_markers: Vec<String>,
     /// Tests matching these substrings run against the binary, not a module
@@ -92,6 +97,10 @@ fn normalize(path: &Path) -> String {
     } else {
         parts.join("/")
     }
+}
+
+fn default_extensions() -> Vec<String> {
+    vec!["ts".to_owned(), "tsx".to_owned()]
 }
 
 fn default_upstream() -> String {
@@ -220,6 +229,17 @@ impl Workspace {
         } else {
             format!("{}/{name}", self.state_dir)
         }
+    }
+
+    /// Whether `rel` is a source file the graph includes, by extension
+    /// (declaration files never are).
+    pub fn is_source(&self, rel: &str) -> bool {
+        if rel.ends_with(".d.ts") {
+            return false;
+        }
+        let name = rel.rsplit('/').next().unwrap_or(rel);
+        name.rsplit_once('.')
+            .is_some_and(|(_, ext)| self.config.extensions.iter().any(|e| e == ext))
     }
 
     pub fn is_test(&self, rel: &str) -> bool {

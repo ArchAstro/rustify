@@ -335,8 +335,10 @@ fn ui_section(out: &mut String, ui: &Components, graph: &Graph, f: usize) {
         .filter(|i| ui.library.ui_packages.contains(&i.specifier))
         .flat_map(|i| i.names.iter().map(String::as_str))
         .collect();
-    let is_ui =
-        file.rel.ends_with(".tsx") || !ink_names.is_empty() || ui.module_for(&file.rel).is_some();
+    let is_ui = file.rel.ends_with(".tsx")
+        || file.rel.ends_with(".jsx")
+        || !ink_names.is_empty()
+        || ui.module_for(&file.rel).is_some();
     if !is_ui {
         return;
     }
@@ -368,7 +370,7 @@ fn ui_section(out: &mut String, ui: &Components, graph: &Graph, f: usize) {
     let dependents = graph
         .files
         .iter()
-        .filter(|g| g.deps.contains(&f) && g.rel.ends_with(".tsx"))
+        .filter(|g| g.deps.contains(&f) && (g.rel.ends_with(".tsx") || g.rel.ends_with(".jsx")))
         .count();
     if ui.module_for(&file.rel).is_none() && dependents >= 2 {
         let _ = writeln!(

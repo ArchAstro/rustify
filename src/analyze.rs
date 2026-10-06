@@ -81,7 +81,7 @@ impl Analyzer {
     }
 
     pub fn analyze(&self, path: &str, source: &str) -> Result<FileAnalysis> {
-        let compiled = if path.ends_with(".tsx") {
+        let compiled = if path.ends_with(".tsx") || path.ends_with(".jsx") {
             &self.tsx
         } else {
             &self.ts
