@@ -26,15 +26,17 @@ flowchart TD
 
 ## What makes it different
 
-1. **It ports a few files at a time, in import order.** A module is offered
+1. **Your opinions are baked into the harness, so you get the port you
+   want.** `mappings.toml` says how each TypeScript construct and npm package
+   becomes Rust, with the behavior differences to watch for, and a conventions
+   document covers errors, async, naming, and tests. Every brief quotes the
+   rules that match its files, so fifty agents make the same choice for
+   `Promise.all`, regexes, or your HTTP client: yours. Change a rule and the
+   next batch follows it.
+2. **It ports a few files at a time, in import order.** A module is offered
    only after everything it imports is ported, so each batch compiles and its
    tests run before the next one starts. Import cycles are kept together as
    one batch. Nothing is reviewed only at the end.
-2. **You decide how each construct is translated.** `mappings.toml` maps
-   TypeScript constructs (as tree-sitter queries) and npm packages to the
-   Rust you want, with the behavior differences to watch for. Every brief
-   quotes the rules that match its files, so fifty agents make the same
-   choice for `Promise.all`, regexes, or your HTTP client.
 3. **It records what each Rust file was written against.** `index.toml` holds
    the git blob ids of the TypeScript file and its tests. That makes "is this
    module still current?" a comparison, not a judgement.
