@@ -10,17 +10,42 @@ ported TypeScript without porting the change.
 It was built to port a ~1,200-file TypeScript CLI with coding agents working
 in parallel. It works the same for a person porting by hand.
 
+```mermaid
+flowchart TD
+    setup["Set up<br/>rustify.toml and mappings.toml"] --> e2e["rustify e2e<br/>which tests run the program as a process"]
+    e2e --> next["rustify next<br/>ready batches, in import order"]
+    next --> brief["rustify brief<br/>Rust paths, imports, hazards, tests to port"]
+    brief --> write["You or an agent write the Rust and port the tests"]
+    write --> done["rustify done<br/>records the TS blobs in index.toml"]
+    done --> more{"Modules left?"}
+    more -- yes --> next
+    more -- no --> compare["rustify compare<br/>both programs on the same cases"]
+    ts["TypeScript changes after a module is ported"] --> ratchet["rustify ratchet in CI<br/>fails the PR until the Rust is updated"]
+    ratchet --> brief
 ```
- TypeScript repo                     rustify                         you / agents
- ───────────────                     ───────                         ────────────
- packages/*/src/**.ts  ──parse──▶  import graph  ──next──▶  batch + brief  ──▶  write Rust
-                                        ▲                                         │
-                                        │                                    rustify done
-                                   index.toml  ◀──────────── records ─────────────┘
-                                        │
-                     CI: rustify ratchet ──▶ fails a PR that changes ported TS
-                                             without porting it
-```
+
+## What makes it different
+
+1. **It ports a few files at a time, in import order.** A module is offered
+   only after everything it imports is ported, so each batch compiles and its
+   tests run before the next one starts. Import cycles are kept together as
+   one batch. Nothing is reviewed only at the end.
+2. **You decide how each construct is translated.** `mappings.toml` maps
+   TypeScript constructs (as tree-sitter queries) and npm packages to the
+   Rust you want, with the behavior differences to watch for. Every brief
+   quotes the rules that match its files, so fifty agents make the same
+   choice for `Promise.all`, regexes, or your HTTP client.
+3. **It records what each Rust file was written against.** `index.toml` holds
+   the git blob ids of the TypeScript file and its tests. That makes "is this
+   module still current?" a comparison, not a judgement.
+4. **CI keeps the port from falling behind.** While both codebases exist, a
+   pull request that changes ported TypeScript fails until it carries the
+   Rust change.
+5. **It checks the result from outside.** `e2e` finds the tests that can run
+   against either binary, and `compare` runs both programs on the same
+   commands and diffs exit code, output, and files.
+
+rustify writes no Rust itself. It plans, briefs, records, and checks.
 
 ## Contents
 
@@ -28,7 +53,8 @@ in parallel. It works the same for a person porting by hand.
 2. [Quickstart: port your first module](#quickstart-port-your-first-module)
 3. [The porting loop](#the-porting-loop)
 4. [Commands](#commands)
-5. Further docs
+5. [Supporting more languages](#supporting-more-languages)
+6. Further docs
    - [docs/workflow.md](docs/workflow.md): the full workflow, parallel agents,
      catch-up, CI, and what each error means
    - [docs/configuration.md](docs/configuration.md): every key in
@@ -292,6 +318,28 @@ from another directory, and `--config <path>` (or `RUSTIFY_CONFIG`) to use a
 | `e2e` | List the tests that run the program as a process, split by whether they also import its source. Run before porting |
 | `compare` | Run each case in `compare.toml` through the TypeScript and Rust programs and report differences in exit code, stdout, stderr, and files. `--case NAME`; `--keep DIR`. Exits 1 on a difference that is not accepted |
 | `stamp-blobs` | Backfill `ts_blobs` on index entries written before blobs existed |
+
+## Supporting more languages
+
+rustify reads TypeScript and JavaScript and targets Rust. Nothing else is
+supported today. The planning, provenance, ratchet, and `compare` code does
+not depend on either language; these parts do:
+
+| To change | Where | What it does now |
+|---|---|---|
+| Source language | `src/analyze.rs` | Parses with `tree-sitter-typescript` and collects imports, exports, and construct matches |
+| Import resolution | `src/packages.rs`, `src/graph.rs` | Resolves relative imports, `package.json` `exports`, workspace links, and Node builtins |
+| Translation rules | `mappings.toml` | Tree-sitter queries written against the TypeScript grammar |
+| Target language | `src/rust_items.rs`, `rust_target` in `src/graph.rs` | Finds Rust items with `tree-sitter-rust` and mirrors a TS path to a `.rs` file and module path |
+| Test detection | `src/e2e.rs`, `test_markers` | Knows Node, Bun, and Deno ways of starting a process |
+
+A new source language needs a tree-sitter grammar, an import collector for
+it, a resolver for its module system, and a `mappings.toml` written against
+its grammar. A new target needs an item scanner and a path-mirroring rule.
+`compare` already works for any pair of programs: it only runs commands.
+
+If you add one, open an issue first so the config keys can be agreed
+(`extensions` already selects which files are sources).
 
 ## Development
 
