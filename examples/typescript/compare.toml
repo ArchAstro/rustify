@@ -1,0 +1,60 @@
+# Cases `rustify compare` runs through both programs. Copy to your state
+# directory (next to index.toml) and replace the commands and cases.
+#
+# Each case runs twice, once per program, in its own empty temporary
+# directory, one case at a time. rustify compares the exit code, stdout,
+# stderr, the set of files left in the directory, and the contents of the
+# text files among them. Files that are not UTF-8 (images, video) are compared
+# by presence only.
+
+# The TypeScript program and the Rust program. `{root}` is the repository
+# root; use it for every path, because the working directory is temporary.
+old = ["node", "{root}/packages/app/bin/app.mjs"]
+new = ["{root}/rust/target/release/app"]
+
+# Seconds before a case is killed, along with anything it started. Its exit
+# is then recorded as "timeout".
+timeout_secs = 60
+
+# Set for both programs. `{root}` and `{work}` (the case's working directory)
+# expand. Point HOME and caches at `{work}` so neither program reads your own
+# configuration.
+[env]
+HOME = "{work}"
+NO_COLOR = "1"
+
+# Regex replacements applied to stdout, stderr, text files, and file names
+# before comparing. The working directory is already replaced with <WORK>.
+[[normalize]]
+pattern = '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z'
+replace = "<TIME>"
+
+[[normalize]]
+pattern = 'pid \d+'
+replace = "pid <PID>"
+
+[[case]]
+name = "help"
+args = ["--help"]
+
+[[case]]
+name = "unknown-command"
+args = ["bogus"]
+
+[[case]]
+name = "build-basic"
+args = ["build", "--out", "dist"]
+# Copied into the working directory first. Relative to this file.
+fixture = "fixtures/basic"
+
+[[case]]
+name = "reads-stdin"
+args = ["format", "-"]
+stdin = "{\"a\":1}\n"
+
+[[case]]
+name = "version"
+args = ["--version"]
+# A difference you decided to keep. The case still runs: it stops failing the
+# run, and rustify reports it once the two programs agree again.
+accept = "the Rust build reports the crate version"

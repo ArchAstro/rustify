@@ -32,7 +32,10 @@ in parallel. It works the same for a person porting by hand.
    - [docs/workflow.md](docs/workflow.md): the full workflow, parallel agents,
      catch-up, CI, and what each error means
    - [docs/configuration.md](docs/configuration.md): every key in
-     `rustify.toml`, `mappings.toml`, `components.toml`, and `index.toml`
+     `rustify.toml`, `mappings.toml`, `components.toml`, `compare.toml`, and
+     `index.toml`
+   - [skills/rustify/SKILL.md](skills/rustify/SKILL.md): the same workflow
+     as an agent skill
 
 ## Install
 
@@ -256,7 +259,15 @@ rustify next --catch-up   re-port them in dependency order
 rustify done <file>       re-records the new TS as ported
 ```
 
-[docs/workflow.md](docs/workflow.md) covers each step in detail.
+Before the first batch, and after the last:
+
+```
+rustify e2e               which tests run the program as a process without importing its source
+rustify compare           run the cases in compare.toml through both programs and diff the results
+```
+
+[docs/workflow.md](docs/workflow.md) covers each step in detail. To have a
+coding agent run the port, give it [skills/rustify/SKILL.md](skills/rustify/SKILL.md).
 
 ## Commands
 
@@ -278,6 +289,8 @@ from another directory, and `--config <path>` (or `RUSTIFY_CONFIG`) to use a
 | `drift` | List ported modules whose TS or tests changed on the upstream ref |
 | `ratchet` | CI gate. `--base REF` (default: the upstream ref) |
 | `graph` | Graph summary and rule hit counts; `--json` for the full graph |
+| `e2e` | List the tests that run the program as a process, split by whether they also import its source. Run before porting |
+| `compare` | Run each case in `compare.toml` through the TypeScript and Rust programs and report differences in exit code, stdout, stderr, and files. `--case NAME`; `--keep DIR`. Exits 1 on a difference that is not accepted |
 | `stamp-blobs` | Backfill `ts_blobs` on index entries written before blobs existed |
 
 ## Development

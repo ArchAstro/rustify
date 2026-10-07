@@ -81,6 +81,18 @@ impl Packages {
         Ok(Self { by_name })
     }
 
+    /// The workspace package called `name`, unless `importer` declares that
+    /// name as an `npm:` alias. Looser than `link`: it also matches a
+    /// workspace package pinned by version (`"@acme/kit": "1.2.0"`), which
+    /// npm and yarn workspaces link locally.
+    pub fn local(&self, importer: Option<&Package>, name: &str) -> Option<&Package> {
+        let spec = importer.and_then(|p| p.deps.get(name));
+        if spec.is_some_and(|spec| spec.starts_with("npm:")) {
+            return None;
+        }
+        self.by_name.get(name)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &Package> {
         self.by_name.values()
     }

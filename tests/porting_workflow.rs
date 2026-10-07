@@ -1525,3 +1525,371 @@ max_lines = 800
         "{index}"
     );
 }
+
+#[test]
+fn e2e_separates_tests_that_only_run_the_program_from_tests_that_import_its_source() {
+    let f = fixture();
+    // Runs the program through a helper and imports no source: it can run
+    // against the Rust binary unchanged. It sits outside the configured
+    // binary_test_markers directory, which the report points out.
+    f.write(
+        "src/ts/app/src/__tests__/helpers/run.ts",
+        "import { spawnSync } from \"node:child_process\";\nexport const run = (args: string[]) => spawnSync(process.env.APP_BIN!, args);\n",
+    );
+    f.write(
+        "src/ts/app/src/__tests__/protocol.test.ts",
+        "import { expect, test } from \"vitest\";\nimport stripAnsi from \"strip-ansi\";\nimport { run } from \"./helpers/run\";\ntest(\"help\", () => { expect(run([\"--help\"]).status).toBe(0); });\n",
+    );
+    // Runs the program but also reaches into its source.
+    f.write(
+        "src/ts/app/src/__tests__/e2e/mixed.e2e.test.ts",
+        "import { execa } from \"execa\";\nimport { slugify } from \"../../util\";\nimport { helper } from \"@x/kit/helpers\";\n",
+    );
+    // Reaches source two less direct ways: a workspace package it does not
+    // declare as `workspace:*`, and another package's build output.
+    f.write(
+        "src/ts/app/src/__tests__/e2e/built.e2e.test.ts",
+        "import { spawn } from \"child_process\";\nimport { Client } from \"@real/sdk\";\nimport { helper } from \"../../../../kit/dist/helpers.js\";\n",
+    );
+    // A type import is erased, so this one still needs no source. It lives in
+    // a package of its own that no source file imports, and starts the
+    // program through a runtime global instead of an import.
+    f.write(
+        "src/ts/acceptance/package.json",
+        r#"{"name":"@x/acceptance"}"#,
+    );
+    f.write(
+        "src/ts/acceptance/__tests__/smoke.test.ts",
+        "import type { Options } from \"../../app/src/types\";\nimport { join } from \"path/posix\";\nawait Bun.spawn([process.env.APP_BIN!]).exited;\n",
+    );
+    // A tsconfig path alias reaches source even though it looks like a
+    // package name.
+    f.write(
+        "src/ts/app/src/__tests__/e2e/alias.e2e.test.ts",
+        "import { execa } from \"execa\";\nimport { slugify } from \"@/util\";\n",
+    );
+
+    let report = f.port_json(&["e2e"]);
+    let names = |key: &str| -> Vec<String> {
+        report[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["ts"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        names("black_box"),
+        [
+            "src/ts/acceptance/__tests__/smoke.test.ts",
+            "src/ts/app/src/__tests__/protocol.test.ts"
+        ]
+    );
+    assert_eq!(report["black_box"][0]["needs"], serde_json::json!([]));
+    let protocol = &report["black_box"][1];
+    assert_eq!(protocol["binary_marked"], false);
+    assert_eq!(protocol["needs"], serde_json::json!(["strip-ansi"]));
+    assert_eq!(
+        names("mixed"),
+        [
+            "src/ts/app/src/__tests__/e2e/alias.e2e.test.ts",
+            "src/ts/app/src/__tests__/e2e/built.e2e.test.ts",
+            "src/ts/app/src/__tests__/e2e/mixed.e2e.test.ts"
+        ]
+    );
+    assert_eq!(
+        report["mixed"][0]["imports_source"],
+        serde_json::json!(["@/util"])
+    );
+    assert_eq!(
+        report["mixed"][1]["imports_source"],
+        serde_json::json!(["@real/sdk", "src/ts/kit/src/helpers.ts"])
+    );
+    assert_eq!(
+        report["mixed"][2]["imports_source"],
+        serde_json::json!(["@x/kit", "src/ts/app/src/util.ts"])
+    );
+    // util.test, store.test, and the fixture's cli.e2e.test never spawn.
+    assert_eq!(report["in_process"], 3);
+
+    let out = f.port(&["e2e"]);
+    assert_ok(&out);
+    let printed = text(&out);
+    assert!(
+        printed.contains("2 run the program as a process without importing its source"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("imports src/ts/app/src/util.ts"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("match no `binary_test_markers` entry"),
+        "{printed}"
+    );
+
+    // Without such a test the report says the suite is missing.
+    std::fs::remove_file(f.root.join("src/ts/app/src/__tests__/protocol.test.ts")).unwrap();
+    std::fs::remove_file(f.root.join("src/ts/acceptance/__tests__/smoke.test.ts")).unwrap();
+    let printed = text(&f.port(&["e2e"]));
+    assert!(
+        printed.contains("No test covers the program through its process boundary alone"),
+        "{printed}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn compare_runs_both_programs_and_fails_only_on_differences_that_are_not_accepted() {
+    let f = fixture();
+    // Stand-ins for the TypeScript and Rust builds of one CLI. They agree
+    // except where each case below says otherwise.
+    let program = |greeting: &str, extra: &str| {
+        format!(
+            r#"case "$1" in
+  hello) echo "{greeting}" ;;
+  now) echo "at 2026-10-07T01:02:03Z in $PWD" ;;
+  write) cat input.txt > out.txt; printf '\000\001' > image.bin; {extra} ;;
+  echo) cat ;;
+  fail) echo "bad flag" >&2; exit 2 ;;
+  hang) sleep 30 ;;
+esac
+"#
+        )
+    };
+    f.write("bin/old.sh", &program("hello", "date +%s%N > stamp.txt"));
+    f.write(
+        "bin/new.sh",
+        &program("Hello", "date +%s%N > stamp.txt; echo x > extra.txt"),
+    );
+    f.write("port/fixtures/basic/input.txt", "payload\n");
+    let spec = |cases: &str| {
+        format!(
+            r#"old = ["sh", "{{root}}/bin/old.sh"]
+new = ["sh", "{{root}}/bin/new.sh"]
+timeout_secs = 2
+
+[[normalize]]
+pattern = '\d{{4}}-\d\d-\d\dT[\d:]+Z'
+replace = "<TIME>"
+
+[[normalize]]
+pattern = '^\d+\n$'
+replace = "<NANOS>\n"
+{cases}"#
+        )
+    };
+
+    // Timestamps and the working directory are normalized away; stdin, the
+    // exit code, and stderr are carried through.
+    f.write(
+        "port/compare.toml",
+        &spec(
+            r#"
+[[case]]
+name = "now"
+args = ["now"]
+
+[[case]]
+name = "echo"
+args = ["echo"]
+stdin = "typed\n"
+
+[[case]]
+name = "fail"
+args = ["fail"]
+"#,
+        ),
+    );
+    let out = f.port(&["compare"]);
+    assert_ok(&out);
+    assert!(
+        text(&out).contains("3 case(s): 3 same, 0 accepted, 0 differ"),
+        "{}",
+        text(&out)
+    );
+
+    // A difference in stdout or in the files written fails the run and
+    // names the first differing line.
+    f.write(
+        "port/compare.toml",
+        &spec(
+            r#"
+[[case]]
+name = "hello"
+args = ["hello"]
+
+[[case]]
+name = "write"
+args = ["write"]
+fixture = "fixtures/basic"
+"#,
+        ),
+    );
+    let out = f.port(&["compare", "--keep", "kept"]);
+    assert_eq!(out.status.code(), Some(1));
+    let printed = text(&out);
+    assert!(
+        printed.contains("DIFF hello: stdout (old exit 0, new exit 0)"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("old: hello") && printed.contains("new: Hello"),
+        "{printed}"
+    );
+    assert!(printed.contains("DIFF write: files"), "{printed}");
+    assert!(printed.contains("only new wrote extra.txt"), "{printed}");
+    assert!(
+        printed.contains("2 case(s): 0 same, 0 accepted, 2 differ"),
+        "{printed}"
+    );
+    // The copied fixture and the binary file are listed for both sides.
+    let kept = std::fs::read_to_string(f.root.join("kept/write/old.files")).unwrap();
+    assert_eq!(kept, "image.bin\ninput.txt\nout.txt\nstamp.txt\n");
+
+    // An accepted difference passes; an acceptance that no longer applies
+    // and a program that hangs are both reported.
+    f.write(
+        "port/compare.toml",
+        &spec(
+            r#"
+[[case]]
+name = "hello"
+args = ["hello"]
+accept = "the Rust build capitalizes the greeting"
+
+[[case]]
+name = "fail"
+args = ["fail"]
+accept = "left over from an old difference"
+
+[[case]]
+name = "hang"
+args = ["hang"]
+"#,
+        ),
+    );
+    // Both sides hanging is a failure, not agreement.
+    let out = f.port(&["--json", "compare"]);
+    assert_eq!(out.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&out.stdout).expect("stdout is JSON");
+    let statuses: Vec<(&str, &str)> = report["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["name"].as_str().unwrap(), c["status"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        statuses,
+        [("hello", "accepted"), ("fail", "stale"), ("hang", "differ")]
+    );
+    assert_eq!(report["cases"][1]["old_exit"], "2");
+    assert_eq!(report["cases"][2]["old_exit"], "timeout");
+    assert_eq!(
+        report["cases"][2]["differs"],
+        serde_json::json!(["timeout"])
+    );
+    let printed = text(&f.port(&["compare", "--case", "hello", "--case", "fail"]));
+    assert!(
+        printed.contains("accepted: the Rust build capitalizes the greeting"),
+        "{printed}"
+    );
+    assert!(printed.contains("STALE fail"), "{printed}");
+
+    // A case name that does not exist is an error, not an empty pass.
+    let out = f.port(&["compare", "--case", "nope"]);
+    assert!(!out.status.success());
+    assert!(
+        text(&out).contains("no case named \"nope\""),
+        "{}",
+        text(&out)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn compare_bounds_leftover_processes_and_sees_what_kind_of_file_each_side_wrote() {
+    let f = fixture();
+    // `linger` exits at once but leaves a child holding stdout open for far
+    // longer than the timeout. `kinds` leaves the same names behind as
+    // different kinds of file. `signal` dies from a different signal on
+    // each side.
+    let program = |dir_or_file: &str, signal: &str| {
+        format!(
+            r#"case "$1" in
+  linger) sleep 30 & echo started ;;
+  kinds) {dir_or_file}; cat seed/link > copied.txt ;;
+  signal) kill -{signal} $$ ;;
+esac
+"#
+        )
+    };
+    f.write("bin/old.sh", &program("mkdir out", "KILL"));
+    f.write("bin/new.sh", &program("echo x > out", "TERM"));
+    // A fixture with a working and a broken symlink is copied as it is.
+    f.write("port/fixtures/links/seed/real.txt", "linked\n");
+    std::os::unix::fs::symlink("real.txt", f.root.join("port/fixtures/links/seed/link")).unwrap();
+    std::os::unix::fs::symlink("missing", f.root.join("port/fixtures/links/seed/broken")).unwrap();
+    f.write(
+        "port/compare.toml",
+        r#"old = ["sh", "{root}/bin/old.sh"]
+new = ["sh", "{root}/bin/new.sh"]
+timeout_secs = 1
+
+[[case]]
+name = "linger"
+args = ["linger"]
+
+[[case]]
+name = "kinds"
+args = ["kinds"]
+fixture = "fixtures/links"
+
+[[case]]
+name = "signal"
+args = ["signal"]
+"#,
+    );
+    let started = std::time::Instant::now();
+    let out = f.port(&["compare", "--keep", "kept"]);
+    // Four seconds of grace per side at most, not the 30 the child sleeps.
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let printed = text(&out);
+    assert!(
+        printed.contains("DIFF linger: timeout (old exit timeout, new exit timeout)"),
+        "{printed}"
+    );
+    assert!(printed.contains("DIFF kinds: file out"), "{printed}");
+    assert!(
+        printed.contains("old: a directory") && printed.contains("new: a text file"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("DIFF signal: exit (old exit signal 9, new exit signal 15)"),
+        "{printed}"
+    );
+    // The links arrived as links, and the program read through the good one.
+    let kept = std::fs::read_to_string(f.root.join("kept/kinds/old.files")).unwrap();
+    assert_eq!(
+        kept,
+        "copied.txt\nout\nseed\nseed/broken\nseed/link\nseed/real.txt\n"
+    );
+
+    // A case name is a directory name under --keep, so it cannot leave it.
+    f.write(
+        "port/compare.toml",
+        "old = [\"true\"]\nnew = [\"true\"]\n[[case]]\nname = \"../escape\"\n",
+    );
+    let out = f.port(&["compare", "--keep", "kept"]);
+    assert!(!out.status.success());
+    assert!(
+        text(&out).contains("may only use letters, digits"),
+        "{}",
+        text(&out)
+    );
+}

@@ -413,6 +413,7 @@ dependencies = [
  "globset",
  "petgraph",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "streaming-iterator",

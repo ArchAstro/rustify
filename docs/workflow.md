@@ -11,7 +11,9 @@ configuration key, see [configuration.md](configuration.md).
 6. [Keep the port current](#6-keep-the-port-current)
 7. [The CI ratchet](#7-the-ci-ratchet)
 8. [UI components](#8-ui-components)
-9. [Errors and what to do](#9-errors-and-what-to-do)
+9. [End-to-end tests](#9-end-to-end-tests)
+10. [Compare the two programs](#10-compare-the-two-programs)
+11. [Errors and what to do](#11-errors-and-what-to-do)
 
 ## 1. Set up
 
@@ -267,7 +269,137 @@ With a `components.toml`, `check` also requires:
    Your library provides those helpers in a `golden` module.
 3. Every ported `.tsx` module's Rust file references `golden::`.
 
-## 9. Errors and what to do
+## 9. End-to-end tests
+
+Run this before porting anything:
+
+```bash
+rustify e2e
+```
+
+A test that starts the program as a process and asserts on its output can run
+against the Rust binary without changes. A test that imports the program's
+source cannot: it is ported with its module, and it stops checking the
+TypeScript once that module is gone. `e2e` sorts every test file into three
+groups:
+
+| Group | Meaning | What to do |
+|---|---|---|
+| Process tests with no source imports | Imports a process spawner (`node:child_process`, `execa`, `node-pty`, ...) and no source file or workspace package, directly or through helpers | Keep them. They are the port's acceptance suite. `needs:` lists the npm packages each one imports |
+| Process tests that also import source | Starts the program and also imports the listed files | Replace each import with something observable from outside (output, files), or the test cannot run against Rust |
+| Never start a process | Module tests | Ported with their modules |
+
+```
+38 test file(s): 5 run the program as a process without importing its source, 2 run it but also import source, 31 never start a process
+
+Process tests with no source imports (can run against the Rust binary as they are):
+  packages/app/src/cli.e2e.test.ts  (174 lines)  needs: sharp
+  ...
+Process tests that also import source (cannot run against the Rust binary until these imports are removed):
+  packages/app/test/doctor.test.mjs
+    imports packages/app/bin/doctor.mjs
+```
+
+What `e2e` can and cannot see:
+
+- It reads files whose name contains `.test.` or `.spec.`, with an extension
+  listed in `extensions`, under `roots` and every workspace package. Add
+  `mjs` or `js` to `extensions` if the tests are JavaScript.
+- A test starts a process when it or a helper imports a spawner, imports
+  `$`/`spawn` from `bun`, or mentions `Bun.spawn`, `Bun.$`, or
+  `Deno.Command`. A wrapper from an npm package it does not know is missed.
+- `import type` does not count as importing source. A specifier starting
+  with `@/`, `~/`, or `#` (a path alias) does.
+
+Check three things by hand for the first group:
+
+1. **Coverage.** List every command, flag, exit code, and file the program
+   writes, and mark which a test asserts on. Write tests for the rest while
+   the TypeScript is still the reference.
+2. **Which program they run.** A test that hard-codes `node dist/cli.js`
+   tests only the TypeScript. Make each one read the command from an
+   environment variable so CI can run the same file against both builds.
+3. **What else they need.** A test that needs the network, an account, or a
+   tool CI does not install will be skipped there. Replace the dependency
+   with a local stand-in or note it as uncovered.
+
+Add the directory or suffix of these tests to `binary_test_markers`, so
+`next` never hands them to a batch; `e2e` lists the ones that match no marker.
+
+If the first group is empty, write these tests before porting. Without them
+the only check on the finished port is `rustify compare`.
+
+## 10. Compare the two programs
+
+When the port is complete (`rustify status` shows nothing left), run the same
+commands through both programs:
+
+```bash
+rustify compare                    # every case in compare.toml
+rustify compare --case help        # one case (repeatable)
+rustify compare --keep out/        # also write out/<case>/{old,new}.{stdout,stderr,exit,files}
+```
+
+Cases live in `compare.toml` in `state_dir`; start from
+[`examples/typescript/compare.toml`](../examples/typescript/compare.toml) and
+see [configuration.md](configuration.md#comparetoml) for every key. For each
+case, rustify runs the old program and then the new one, each in its own
+empty temporary directory (after copying the case's `fixture` into it), and
+compares:
+
+1. the exit code (`signal N` when a signal ended the program),
+2. stdout and stderr,
+3. the paths left in the working directory and what each is (directory,
+   symlink and its target, text file, binary file),
+4. the contents of the files that are UTF-8 text.
+
+Files that are not UTF-8 are compared by presence only. For images and video,
+write a check of your own (dimensions, decoded pixels, duration).
+
+Cases run one at a time, so programs that start a browser or a server do not
+pile up. When a case ends, rustify kills whatever is still running in the
+program's process group. `timeout_secs` covers the program and its output: a
+case whose program is still running, or whose stdout or stderr is still held
+open by something it started, is killed and reported as `timeout`. A timeout
+always counts as a difference, including when both programs time out. Two
+limits: a process that moves itself to another session (`setsid`) is not
+killed, and on Windows only the program itself is.
+
+```
+DIFF hello: stdout (old exit 0, new exit 0)
+  stdout:
+    line 1
+    old: hello
+    new: Hello
+ACCEPTED version: stdout (old exit 0, new exit 0)
+  accepted: the Rust build reports the crate version
+STALE fail: accepted in compare.toml but no longer differs
+3 case(s): 0 same, 1 accepted, 1 differ, 1 accepted but no longer differ (remove `accept`)
+```
+
+`compare` exits 1 when any case differs and has no `accept`. For each
+difference, either fix the Rust or add `accept = "<why>"` to the case and
+record the divergence where users will find it.
+
+**Writing the cases.** Build the list from the TypeScript, not from the Rust:
+
+1. One case per command with no arguments, with `--help`, and with an unknown
+   flag. Usage text and argument errors are where ports drift first.
+2. One case per flag, including a bad value for each flag that validates.
+3. One case per error path the TypeScript reports: missing file, malformed
+   input, missing tool on `PATH`.
+4. One case per kind of file written, with a `fixture` that exercises it.
+5. Sequences that depend on earlier commands need one script per sequence;
+   make the script the case (`old = ["sh", "{root}/cases/seq.sh", "old"]`).
+
+Add `[[normalize]]` rules for timestamps, process ids, durations, and random
+ids. Set `HOME` and cache directories to `{work}` under `[env]` so neither
+program reads your own configuration.
+
+Once the cases pass, run `rustify compare` in CI for as long as both programs
+ship.
+
+## 11. Errors and what to do
 
 | Message | Meaning | Fix |
 |---|---|---|
@@ -283,4 +415,6 @@ With a `components.toml`, `check` also requires:
 | `warning: upstream drift unknown` | The upstream ref is missing | `git fetch origin main` (or set `upstream`) |
 | ratchet: `... changed without porting it` | See [section 7](#7-the-ci-ratchet) | Port the diff, `rustify done <file>`, commit `index.toml` |
 | ratchet: `find the merge base ... (fetch full history)` | Shallow clone in CI | `fetch-depth: 0` |
+| `read .../compare.toml` | `compare` has no cases | Copy `examples/typescript/compare.toml` into `state_dir` |
+| compare: `start <program>: No such file or directory` | A command in `old`/`new` is not found from the temporary working directory | Use `{root}/...` or an absolute path |
 | `index.toml` conflict after a rebase | Two branches recorded ports | Keep both sides' entries, re-run `done` on your modules |

@@ -1,6 +1,6 @@
 # Configuration reference
 
-rustify reads four files. You write the first three; `index.toml` is written
+rustify reads five files. You write the first four; `index.toml` is written
 by the tool.
 
 | File | Location | Required |
@@ -8,6 +8,7 @@ by the tool.
 | `rustify.toml` | anywhere in the repository (found by searching upward, or `--config`) | yes |
 | `mappings.toml` | `state_dir` | yes (may be empty) |
 | `components.toml` | `state_dir` | no |
+| `compare.toml` | `state_dir` | only for `rustify compare` |
 | `index.toml` | `state_dir` | created by `start` / `done` |
 
 All paths inside these files are relative to the repository root (the git top
@@ -163,6 +164,29 @@ hazards = ["Yoga shrinks fixed-width children on overflow; ratatui does not."]
 | `[[widget]]` `status` | `available` (exists and tested) or `planned` (to build first). |
 | `[[widget]]` `summary` | One line for the brief. |
 | `[[ink]]` `names`, `rust`, `hazards` | Imported UI API names and their Rust equivalent. |
+
+## `compare.toml` (optional)
+
+Read by `rustify compare` from `state_dir`. Starter:
+[`examples/typescript/compare.toml`](../examples/typescript/compare.toml).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `old` | required | Command line of the TypeScript program, as an array. `{root}` expands to the repository root. Each case runs in a temporary directory, so every path must be absolute or start with `{root}`. |
+| `new` | required | Command line of the Rust program. |
+| `timeout_secs` | `60` | Seconds allowed for the program to exit and its output to close. Past that the program's process group is killed and the case is reported as `timeout`, which always counts as a difference. |
+| `[env]` | none | Variables set for both programs. `{root}` and `{work}` (the case's working directory) expand in values. The rest of the environment is inherited. |
+| `[[normalize]]` | none | `pattern` (a [regex](https://docs.rs/regex)) and `replace`, applied in order to stdout, stderr, text file contents, and file names before comparing. The working directory is replaced with `<WORK>` first. |
+
+Each `[[case]]`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | Unique. Letters, digits, `-`, `_`, and `.` only. Used by `--case` and as the directory name under `--keep`. |
+| `args` | `[]` | Arguments appended to both command lines. `{root}` and `{work}` expand. |
+| `fixture` | none | Directory copied into the working directory before each run, relative to `compare.toml`. Symlinks are copied as symlinks. |
+| `stdin` | closed | Text written to the program's stdin. |
+| `accept` | none | Why the case may differ. An accepted case does not fail the run; `compare` reports it as `STALE` once the programs agree. |
 
 ## `index.toml` (written by rustify)
 

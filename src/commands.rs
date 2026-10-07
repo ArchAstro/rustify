@@ -27,9 +27,16 @@ struct Ctx<'a> {
 }
 
 pub fn run(ws: &Workspace, command: Command, json: bool) -> Result<bool> {
+    if let Command::Compare { cases, keep } = &command {
+        // Needs neither the graph nor the index.
+        return crate::compare::run(ws, cases, keep.as_deref(), json);
+    }
     let mappings = Mappings::load(ws)?;
     let analyzer = Analyzer::new(&mappings)?;
     let graph = Graph::build(ws, &analyzer)?;
+    if let Command::E2e = command {
+        return crate::e2e::run(ws, &graph, &analyzer, json);
+    }
     let mut index = Index::load(ws)?;
     index.load_upstream(ws);
     let mut ctx = Ctx {
@@ -116,6 +123,7 @@ pub fn run(ws: &Workspace, command: Command, json: bool) -> Result<bool> {
             crate::ratchet::run(ctx.ws, &ctx.graph, &ctx.index, &base)
         }
         Command::Graph => graph_summary(&ctx, json),
+        Command::E2e | Command::Compare { .. } => unreachable!("handled above"),
     }
 }
 

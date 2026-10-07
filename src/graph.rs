@@ -17,7 +17,7 @@ use crate::analyze::{Analyzer, FileAnalysis};
 use crate::config::Workspace;
 use crate::packages::{Link, Packages, relative_candidates};
 
-const NODE_BUILTINS: &[&str] = &[
+pub(crate) const NODE_BUILTINS: &[&str] = &[
     "assert",
     "async_hooks",
     "buffer",
@@ -427,7 +427,7 @@ fn assemble_tests(
     tests
 }
 
-fn is_test_case(rel: &str) -> bool {
+pub(crate) fn is_test_case(rel: &str) -> bool {
     rel.contains(".test.") || rel.contains(".spec.")
 }
 
@@ -495,7 +495,7 @@ fn condense(files: &[SourceFile]) -> (Vec<Unit>, Vec<usize>) {
     (units, unit_of)
 }
 
-fn ts_files(ws: &Workspace, dir: &str) -> Vec<String> {
+pub(crate) fn ts_files(ws: &Workspace, dir: &str) -> Vec<String> {
     let base = ws.root.join(dir);
     WalkDir::new(&base)
         .into_iter()

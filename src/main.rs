@@ -4,8 +4,10 @@
 mod analyze;
 mod brief;
 mod commands;
+mod compare;
 mod components;
 mod config;
+mod e2e;
 mod graph;
 mod index;
 mod mappings;
@@ -157,6 +159,21 @@ pub enum Command {
     },
     /// Dependency graph summary, or `--json` for the full graph.
     Graph,
+    /// Which tests run the program as a process without importing its
+    /// source. Those can run unchanged against the Rust binary; run this
+    /// before porting to see whether such a suite exists.
+    E2e,
+    /// Run the cases in `compare.toml` through the TypeScript program and
+    /// the Rust one, one at a time, and fail when exit code, stdout, stderr,
+    /// or the files written differ in a case that is not accepted.
+    Compare {
+        /// Only run this case (repeatable).
+        #[arg(long = "case", value_name = "NAME")]
+        cases: Vec<String>,
+        /// Write each side's normalized output to <dir>/<case>/ for diffing.
+        #[arg(long, value_name = "DIR")]
+        keep: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
