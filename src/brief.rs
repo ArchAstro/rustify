@@ -97,11 +97,14 @@ pub fn render(
                     _ => snake(&e.name),
                 };
                 let asyncness = if e.is_async { " (async)" } else { "" };
-                let _ = writeln!(
-                    out,
-                    "- `{}` {}{asyncness} → `{module}::{rust_name}`",
-                    e.name, e.kind
-                );
+                // `done` skips default exports, so name what it accepts
+                // instead of an item no Rust module can hold.
+                let target = if e.kind == "default" {
+                    "no Rust item of its own; name the one that replaces it with `--map default=<path>`, or `--map default=-`".to_owned()
+                } else {
+                    format!("`{module}::{rust_name}`")
+                };
+                let _ = writeln!(out, "- `{}` {}{asyncness} → {target}", e.name, e.kind);
             }
         }
 

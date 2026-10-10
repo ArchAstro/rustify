@@ -1893,3 +1893,30 @@ args = ["signal"]
         text(&out)
     );
 }
+
+#[test]
+fn a_default_export_is_briefed_without_an_invented_rust_item() {
+    let f = fixture();
+    let plugin = "src/ts/app/src/plugin.ts";
+    f.write(
+        plugin,
+        "export const PLUGIN_ID = \"x\";\nexport default { id: PLUGIN_ID };\n",
+    );
+
+    let brief = text(&f.port(&["brief", plugin]));
+
+    // The named export maps to a Rust item; the default export names the
+    // --map forms `done` accepts instead of `app::plugin::default`.
+    let exports: Vec<&str> = brief
+        .lines()
+        .filter(|line| line.starts_with("- `PLUGIN_ID`") || line.starts_with("- `default`"))
+        .collect();
+    assert_eq!(
+        exports,
+        [
+            "- `PLUGIN_ID` const → `app::plugin::PLUGIN_ID`",
+            "- `default` default → no Rust item of its own; name the one that replaces it with `--map default=<path>`, or `--map default=-`",
+        ],
+        "{brief}"
+    );
+}
